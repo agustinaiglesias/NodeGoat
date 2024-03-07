@@ -1,0 +1,60 @@
+name: Security Checks
+on: [push, pull_request]
+
+jobs:
+  sonarcloud-test:
+    name: Sonarcloud Security Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: SonarCloud Scan
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONARCLOUD_TOKEN }}
+
+      - name: Check SonarCloud Quality Gate
+        run: |
+          QG_STATUS=$(curl https://sonarcloud.io/api/qualitygates/project_status\?projectKey\=maiglesias_NodeGoat | jq -r '.projectStatus.status')
+          if [ ${QG_STATUS} == "ERROR" ]; then
+              echo "Quality Gate failed. Stopping the pipeline."
+              exit 1
+          fi
+
+  snyk-test:
+    name: Snyk Security Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - uses: actions/checkout@master
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --sarif-file-output=snyk.sarif --severity-threshold=high
+
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
+
+  zap-test:
+    name: Zap Security Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Building Docker Node-Goat Image
+        run: docker-compose build
+      - name: Launching the app
+        run: docker-compose up --detach
+      - name: ZAP Scan
+        uses: zaproxy/action-api-scan@v0.5.0
+        with:
+          target: 'http://localhost:4000'
+          cmd_options: '-a'
